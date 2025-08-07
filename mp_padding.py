@@ -85,10 +85,10 @@ def encode_image(image_path):
 # Initialize OpenAI client for Qwen API
 client = OpenAI(
     api_key=os.getenv("DASHSCOPE_API_KEY", ''),
-    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    base_url=""
 )
 
-def inference_with_api(image_path, prompt, sys_prompt="You are a helpful visual analysis assistant that specializes in determining how products and people should be positioned on a canvas for optimal visual presentation.", model_id="qwen2.5-vl-72b-instruct", min_pixels=512*28*28, max_pixels=2048*28*28):
+def inference_with_api(image_path, prompt, sys_prompt="You are a helpful visual analysis assistant that specializes in determining how products and people should be positioned on a canvas for optimal visual presentation.", model_id="", min_pixels=512*28*28, max_pixels=2048*28*28):
     try:
         base64_image = encode_image(image_path)
         messages = [
@@ -693,107 +693,6 @@ def remove_background_birefnet_2(input_path):
         return result
     except Exception as e:
         print(f"Error in remove_background_birefnet_2: {str(e)}")
-        return None
-
-def remove_background_birefnet_hr(input_path):
-    try:
-        # Get original image with color profile - load fully in memory
-        original_img = Image.open(input_path)
-        icc_profile = original_img.info.get('icc_profile')
-        
-        # Handle CMYK images with our consolidated function
-        if original_img.mode == "CMYK":
-            original, icc_profile = convert_cmyk_to_rgb_with_profile(original_img)
-        else:
-            original = original_img.convert("RGB")
-            
-        # Debug original color
-        width, height = original.size
-        center_x, center_y = width//2, height//2
-        debug_color_values(original, center_x, center_y, "Original color (birefnet_hr)")
-        
-        model, transform_img = get_birefnet_hr_model()
-        device = next(model.parameters()).device
-        t_in = transform_img(original).unsqueeze(0).to(device)
-        with torch.no_grad():
-            preds = model(t_in)[-1].sigmoid()
-            mask = preds[0].squeeze().cpu()
-        mask_pil = transforms.ToPILImage()(mask).resize(original.size, Image.LANCZOS)
-        
-        # Create result image with original colors
-        result = original.copy()
-        result.putalpha(mask_pil)
-        
-        # Ensure colors match the original
-        result = ensure_color_fidelity(original_img, result)
-        
-        # Debug processed color
-        safe_x = min(center_x, result.width - 1)
-        safe_y = min(center_y, result.height - 1)
-        debug_color_values(result, safe_x, safe_y, "Processed color (birefnet_hr)")
-        
-        return result
-    except Exception:
-        return None
-
-def remove_background_photoroom(input_path):
-    try:
-        # Get original image with color profile - load fully in memory
-        original_img = Image.open(input_path)
-        icc_profile = original_img.info.get('icc_profile')
-        
-        # Handle CMYK images with our consolidated function
-        if original_img.mode == "CMYK":
-            original, icc_profile = convert_cmyk_to_rgb_with_profile(original_img)
-        else:
-            original = original_img.convert("RGB")
-            
-        # Debug original color
-        width, height = original.size
-        center_x, center_y = width//2, height//2
-        debug_color_values(original, center_x, center_y, "Original color (photoroom)")
-        
-        # Handle AVIF format if needed
-        input_file = input_path
-        if input_path.lower().endswith('.avif'):
-            input_file = convert_avif(input_path, input_path.rsplit('.', 1)[0] + '.png', 'PNG')
-            
-        if not PHOTOROOM_API_KEY:
-            raise ValueError("Photoroom API key missing.")
-            
-        url = "https://sdk.photoroom.com/v1/segment"
-        headers = {"Accept": "image/png, application/json", "x-api-key": PHOTOROOM_API_KEY}
-        
-        with open(input_file, "rb") as f:
-            resp = requests.post(url, headers=headers, files={"image_file": f})
-            
-        if resp.status_code != 200:
-            raise Exception(f"PhotoRoom API error: {resp.status_code} - {resp.text}")
-            
-        # Get the photoroom result
-        photoroom_result = Image.open(BytesIO(resp.content))
-        
-        # Extract just the alpha channel
-        if photoroom_result.mode == "RGBA":
-            mask = photoroom_result.split()[3]
-        else:
-            # If it's not RGBA, convert to grayscale as mask
-            mask = photoroom_result.convert("L")
-        
-        # Apply mask to original image to preserve colors
-        result = original.copy()
-        result.putalpha(mask)
-        
-        # Ensure colors match the original
-        result = ensure_color_fidelity(original_img, result)
-        
-        # Debug processed color
-        safe_x = min(center_x, result.width - 1)
-        safe_y = min(center_y, result.height - 1)
-        debug_color_values(result, safe_x, safe_y, "Processed color (photoroom)")
-        
-        return result
-    except Exception:
         return None
 
 def remove_background_none(input_path):
